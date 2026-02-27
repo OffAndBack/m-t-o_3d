@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Météo Vision 3D Pro - Simulation Ultra-Réaliste</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: #020617;
+            min-height: 100vh;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+
+        #search-container {
+            position: relative;
+            z-index: 50;
+            background: #111827; 
+            border: 1px solid #334155;
+            border-radius: 1rem;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        #cityInput {
+            cursor: text;
+            user-select: auto;
+            -webkit-user-select: auto;
+        }
+
+        #three-canvas-container {
+            width: 100%;
+            height: 480px;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+            z-index: 1;
+            pointer-events: auto;
+        }
+
+        .glass-card {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 20px;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            background: rgba(255, 255, 255, 0.1);
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 24px;
+            height: 24px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 0 10px rgba(59,130,246,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="max-w-6xl mx-auto">
+        
+        <div id="search-container" class="shadow-2xl">
+            <form id="searchForm" class="flex flex-col md:flex-row gap-4 items-center">
+                <div class="flex items-center gap-3 mr-4">
+                    <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-600/30">
+                        <i data-lucide="cloud-lightning" class="text-white w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <span class="font-bold text-lg leading-tight block">Vision 3D</span>
+                        <span class="text-[10px] text-blue-400 font-black uppercase tracking-widest">Météo Shader</span>
+                    </div>
+                </div>
+                
+                <div class="flex-grow w-full relative">
+                    <input type="text" id="cityInput" 
+                        placeholder="Rechercher une ville (ex: Paris, Tokyo)..." 
+                        autocomplete="off"
+                        class="w-full px-5 py-3 rounded-lg bg-slate-800 text-white border border-slate-700 font-bold outline-none focus:border-blue-500 transition-colors">
+                </div>
+                
+                <button type="submit" id="searchBtn" class="w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-3 rounded-lg transition-all active:scale-95">
+                    EXPLORER
+                </button>
+            </form>
+            <p id="searchStatus" class="text-red-400 text-xs mt-2 font-bold opacity-0 transition-opacity">Ville introuvable</p>
+        </div>
+
+        <div class="relative mb-8">
+            <div id="three-canvas-container" class="border border-white/5 shadow-2xl">
+                <!-- INFOS -->
+                <div class="absolute top-6 right-6 z-10 text-right pointer-events-none">
+                    <h2 id="cityName" class="text-5xl font-black uppercase tracking-tighter drop-shadow-2xl">--</h2>
+                    <p id="currentDate" class="text-blue-300 text-sm font-bold uppercase tracking-widest mt-1"></p>
+                    
+                    <div class="mt-4 inline-block bg-black/40 backdrop-blur-md border border-white/10 px-5 py-2 rounded-2xl shadow-2xl">
+                        <p id="weatherLiteral" class="text-xl font-black text-white tracking-wide">--</p>
+                    </div>
+                </div>
+
+                <!-- OVERLAY -->
+                <div id="loadingOverlay" class="absolute inset-0 z-20 bg-slate-950 flex flex-col items-center justify-center transition-opacity duration-300">
+                    <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p class="mt-4 text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Calcul Atmosphérique...</p>
+                </div>
+            </div>
+
+            <!-- SLIDER -->
+            <div class="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] z-20 glass-card">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 id="sliderTimeLabel" class="text-3xl font-black tabular-nums drop-shadow-lg">12:00</h3>
+                        <p id="sliderDateLabel" class="text-xs font-bold text-blue-400 uppercase tracking-widest">Aujourd'hui</p>
+                    </div>
+                    <div class="text-right">
+                        <p id="sliderTempLabel" class="text-3xl font-black drop-shadow-lg">--°C</p>
+                        <p id="sliderDescLabel" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">--</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button id="playPauseBtn" onclick="togglePlay()" class="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full flex-shrink-0 transition-all active:scale-95 shadow-lg shadow-blue-500/40">
+                        <i data-lucide="play" class="w-5 h-5 ml-0.5"></i>
+                    </button>
+                    <input type="range" id="timeSlider" min="0" max="167" value="0" class="w-full cursor-pointer">
+                </div>
+            </div>
+        </div>
+
+        <!-- GRAPHIQUE -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-2 glass-card">
+                <h3 class="text-xs font-black uppercase text-slate-500 mb-4 tracking-widest flex items-center gap-2">
+                    <i data-lucide="trending-up" class="w-4 h-4 text-blue-500"></i> Évolution Température
+                </h3>
+                <div class="h-64 overflow-x-auto">
+                    <div style="min-width: 2000px; height: 100%;">
+                        <canvas id="hourlyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="flex flex-col gap-4">
+                <div class="glass-card flex justify-between items-center border-l-4 border-blue-500">
+                    <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Vent</span>
+                    <span id="windSpeed" class="text-2xl font-black">-- km/h</span>
+                </div>
+                <div class="glass-card flex justify-between items-center border-l-4 border-cyan-500">
+                    <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Humidité</span>
+                    <span id="humidity" class="text-2xl font-black">-- %</span>
+                </div>
+                <div id="forecastContainer" class="glass-card flex-grow overflow-y-auto max-h-[160px]"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, skyDome, skyUniforms;
+        let stars, sunSprite, moonMesh, lightning, rainLines, snowPoints;
+        let cloudsGroup, cloudMat, sunLight; // NOUVEAU : Gestion des nuages 3D et lumière
+        let currentWeather = { isSnow: false, isRain: false, isStorm: false };
+        let weatherData = null;
+        let chartInstance = null;
+        let isPlaying = false;
+        let playInterval = null;
+        const container = document.getElementById('three-canvas-container');
+        const input = document.getElementById('cityInput');
+
+        // --- SHADER PROCÉDURAL POUR UN CIEL ET DES NUAGES RÉALISTES ---
+        const skyVertexShader = `
+            varying vec2 vUv;
+            varying vec3 vWorldPosition;
+            void main() {
+                vUv = uv;
+                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = worldPosition.xyz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        const skyFragmentShader = `
+            uniform float uTime;
+            uniform vec3 uColorTop;
+            uniform vec3 uColorBottom;
+            uniform float uCloudCover;
+            uniform vec3 uCloudColor;
+            varying vec2 vUv;
+            varying vec3 vWorldPosition;
+
+            // Fonction de bruit pseudo-aléatoire
+            float random(in vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+            }
+
+            // Interpolation du bruit
+            float noise(in vec2 st) {
+                vec2 i = floor(st);
+                vec2 f = fract(st);
+                float a = random(i);
+                float b = random(i + vec2(1.0, 0.0));
+                float c = random(i + vec2(0.0, 1.0));
+                float d = random(i + vec2(1.0, 1.0));
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+            }
+
+            // FBM (Fractal Brownian Motion) pour des nuages volumétriques et cotonneux
+            float fbm(in vec2 st) {
+                float v = 0.0;
+                float a = 0.5;
+                vec2 shift = vec2(100.0);
+                // Matrice de rotation pour casser les motifs répétitifs
+                mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.50));
+                for (int i = 0; i < 5; ++i) {
+                    v += a * noise(st);
+                    st = rot * st * 2.0 + shift;
+                    a *= 0.5;
+                }
+                return v;
+            }
+
+            void main() {
+                // Dégradé atmosphérique du ciel basé sur la hauteur
+                float h = normalize(vWorldPosition).y;
+                h = clamp(h, 0.0, 1.0);
+                vec3 skyColor = mix(uColorBottom, uColorTop, max(pow(h, 0.6), 0.0));
+
+                // Génération des nuages
+                vec2 cloudUV = vUv * 6.0; // Échelle des nuages
+                cloudUV.x += uTime * 0.015; // Déplacement avec le vent
+                cloudUV.y += uTime * 0.005;
+
+                // Double FBM pour un effet de volutes épaisses
+                float q = fbm(cloudUV);
+                float cloudNoise = fbm(cloudUV + q + uTime*0.01);
+                
+                // Densité des nuages selon la météo
+                float cloudAlpha = smoothstep(1.0 - uCloudCover, 1.0, cloudNoise);
+                
+                // Rendu final mixant le ciel et les nuages
+                vec3 finalColor = mix(skyColor, uCloudColor, cloudAlpha * 0.95);
+                
+                gl_FragColor = vec4(finalColor, 1.0);
+            }
+        `;
+
+        // Créer un halo solaire réaliste
+        function createSunTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(64, 64, 5, 64, 64, 64);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(0.1, 'rgba(255, 240, 200, 0.9)');
+            grad.addColorStop(0.4, 'rgba(255, 200, 100, 0.4)');
+            grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0,0,128,128);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function init3D() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 2000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // --- LE CIEL (SHADER) ---
+            skyUniforms = {
+                uTime: { value: 0 },
+                uColorTop: { value: new THREE.Color(0x1e488f) },
+                uColorBottom: { value: new THREE.Color(0x8cb4f5) },
+                uCloudCover: { value: 0.2 },
+                uCloudColor: { value: new THREE.Color(0xffffff) }
+            };
+
+            skyDome = new THREE.Mesh(
+                new THREE.SphereGeometry(1000, 32, 32),
+                new THREE.ShaderMaterial({
+                    vertexShader: skyVertexShader,
+                    fragmentShader: skyFragmentShader,
+                    uniforms: skyUniforms,
+                    side: THREE.BackSide
+                })
+            );
+            scene.add(skyDome);
+
+            // --- NOUVEAU : LUMIÈRES ET NUAGES VOLUMÉTRIQUES 3D ---
+            sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            scene.add(sunLight);
+            scene.add(new THREE.AmbientLight(0x404055, 0.6)); // Lumière ambiante douce pour éclairer le bas des nuages
+
+            // Générateur de vraie texture de nuage "cotonneux"
+            function createCloudTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                for(let i=0; i<100; i++) {
+                    const x = 256 + (Math.random() - 0.5) * 250;
+                    const y = 256 + (Math.random() - 0.5) * 150;
+                    const r = 40 + Math.random() * 80;
+                    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+                    grad.addColorStop(0, 'rgba(255,255,255,0.08)');
+                    grad.addColorStop(1, 'rgba(255,255,255,0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            cloudsGroup = new THREE.Group();
+            // Le MeshLambertMaterial permet aux nuages de réagir physiquement à la lumière du soleil !
+            cloudMat = new THREE.MeshLambertMaterial({
+                map: createCloudTexture(),
+                transparent: true,
+                depthWrite: false,
+                opacity: 0,
+                color: 0xffffff
+            });
+
+            const cloudGeo = new THREE.PlaneGeometry(200, 200);
+            for(let i=0; i<120; i++) {
+                const pivot = new THREE.Group();
+                pivot.position.set(
+                    (Math.random() - 0.5) * 1500,
+                    50 + Math.random() * 80,
+                    (Math.random() - 0.5) * 1500
+                );
+                const mesh = new THREE.Mesh(cloudGeo, cloudMat);
+                mesh.rotation.z = Math.random() * Math.PI * 2;
+                const scale = 0.5 + Math.random() * 1.5;
+                mesh.scale.set(scale, scale, 1);
+                pivot.add(mesh);
+                pivot.userData = { speed: 0.05 + Math.random() * 0.1 };
+                cloudsGroup.add(pivot);
+            }
+            scene.add(cloudsGroup);
+            // --- FIN NOUVEAU ---
+
+            // --- ASTRES ---
+            const sunMat = new THREE.SpriteMaterial({ map: createSunTexture(), blending: THREE.AdditiveBlending });
+            sunSprite = new THREE.Sprite(sunMat);
+            sunSprite.scale.set(150, 150, 1);
+            scene.add(sunSprite);
+
+            moonMesh = new THREE.Mesh(
+                new THREE.SphereGeometry(8, 32, 32),
+                new THREE.MeshBasicMaterial({ color: 0xeeeeee })
+            );
+            scene.add(moonMesh);
+
+            // Étoiles
+            const sGeo = new THREE.BufferGeometry();
+            const sPos = new Float32Array(4000 * 3);
+            for(let i=0; i<sPos.length; i++) sPos[i] = (Math.random() - 0.5) * 1800;
+            sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+            stars = new THREE.Points(sGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.8 }));
+            scene.add(stars);
+
+            // --- PRÉCIPITATIONS ULTRA-RÉALISTES ---
+            
+            // 1. La Pluie (Traînées / Streaks)
+            const rainGeo = new THREE.BufferGeometry();
+            const rainCount = 3000;
+            const rainPos = new Float32Array(rainCount * 6); // 2 sommets par goutte
+            for(let i=0; i<rainCount; i++) {
+                const x = (Math.random() - 0.5) * 600;
+                const y = Math.random() * 600;
+                const z = (Math.random() - 0.5) * 600;
+                rainPos[i*6] = x; rainPos[i*6+1] = y; rainPos[i*6+2] = z; // Tête
+                rainPos[i*6+3] = x; rainPos[i*6+4] = y - 15; rainPos[i*6+5] = z; // Queue (traînée)
+            }
+            rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+            rainLines = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0 }));
+            scene.add(rainLines);
+
+            // 2. La Neige (Points virevoltants)
+            const snowGeo = new THREE.BufferGeometry();
+            const snowPos = new Float32Array(2000 * 3);
+            for(let i=0; i<2000; i++) {
+                snowPos[i*3] = (Math.random() - 0.5) * 600;
+                snowPos[i*3+1] = Math.random() * 600;
+                snowPos[i*3+2] = (Math.random() - 0.5) * 600;
+            }
+            snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+            snowPoints = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0 }));
+            scene.add(snowPoints);
+
+            // Éclair
+            lightning = new THREE.PointLight(0xffffff, 0, 1500);
+            lightning.position.set(0, 150, 0);
+            scene.add(lightning);
+
+            camera.position.set(0, 20, 120);
+            camera.lookAt(0, 60, 0);
+
+            function animate() {
+                requestAnimationFrame(animate);
+                const time = Date.now() * 0.001;
+                
+                // Maj du shader de ciel
+                skyUniforms.uTime.value = time;
+                stars.rotation.y += 0.00005;
+
+                // Animation pluie
+                if(rainLines.material.opacity > 0) {
+                    const p = rainLines.geometry.attributes.position.array;
+                    for(let i=1; i<p.length; i+=6) {
+                        p[i] -= 8;   // Tête tombe vite
+                        p[i+3] -= 8; // Queue tombe vite
+                        if(p[i] < -50) {
+                            const newY = 400 + Math.random() * 100;
+                            p[i] = newY;
+                            p[i+3] = newY - 15;
+                        }
+                    }
+                    rainLines.geometry.attributes.position.needsUpdate = true;
+                }
+
+                // Animation neige
+                if(snowPoints.material.opacity > 0) {
+                    const sp = snowPoints.geometry.attributes.position.array;
+                    for(let i=1; i<sp.length; i+=3) {
+                        sp[i] -= 1.5; // Tombe doucement
+                        sp[i-1] += Math.sin(time + i) * 0.03; // Virevolte
+                        if(sp[i] < -50) sp[i] = 400;
+                    }
+                    snowPoints.geometry.attributes.position.needsUpdate = true;
+                }
+
+                // --- NOUVEAU : Animation Nuages Volumétriques ---
+                cloudsGroup.children.forEach(pivot => {
+                    pivot.quaternion.copy(camera.quaternion); // Les nuages font toujours face à la caméra (Effet Billboard 3D)
+                    pivot.position.x += pivot.userData.speed;
+                    if(pivot.position.x > 750) pivot.position.x = -750;
+                });
+
+                // Orage
+                if(currentWeather.isStorm) {
+                    if(Math.random() > 0.985) {
+                        lightning.intensity = 5 + Math.random() * 10;
+                        setTimeout(() => lightning.intensity = 0, 80);
+                    }
+                } else lightning.intensity = 0;
+
+                renderer.render(scene, camera);
+            }
+            animate();
+            
+            window.addEventListener('resize', () => {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+        }
+
+        async function fetchWeather(lat, lon, name) {
+            setLoading(true);
+            try {
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`);
+                weatherData = await res.json();
+                updateStaticUI(name);
+                updateFrame(0);
+                updateChart();
+            } catch(e) { console.error(e); }
+            finally { setLoading(false); }
+        }
+
+        function updateStaticUI(name) {
+            document.getElementById('cityName').textContent = name;
+            document.getElementById('currentDate').textContent = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+            document.getElementById('windSpeed').textContent = `${weatherData.current.wind_speed_10m} km/h`;
+            document.getElementById('humidity').textContent = `${weatherData.current.relative_humidity_2m} %`;
+            
+            const fc = document.getElementById('forecastContainer');
+            fc.innerHTML = '';
+            for(let i=0; i<7; i++) {
+                const d = new Date(weatherData.daily.time[i]);
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center text-[10px] font-bold mb-2 uppercase tracking-tighter border-b border-slate-700/50 pb-1';
+                div.innerHTML = `<span>${d.toLocaleDateString('fr-FR', {weekday:'short'})}</span><span class="text-blue-500">${Math.round(weatherData.daily.temperature_2m_max[i])}°C</span>`;
+                fc.appendChild(div);
+            }
+            lucide.createIcons();
+        }
+
+        function updateFrame(idx) {
+            if(!weatherData) return;
+            const h = weatherData.hourly;
+            const d = new Date(h.time[idx]);
+            const hour = d.getHours();
+            const code = h.weather_code[idx];
+
+            const isDay = hour >= 6 && hour <= 19;
+            const curve = isDay ? Math.sin(((hour - 6) / 13) * Math.PI) : 0;
+
+            // Décodage
+            let isCloudy = false, isOvercast = false, isRain = false, isSnow = false, isStorm = false, isFog = false;
+            if (code >= 1 && code <= 2) { isCloudy = true; }
+            if (code == 3) { isCloudy = true; isOvercast = true; }
+            if (code == 45 || code == 48) { isCloudy = true; isFog = true; }
+            if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) { isCloudy = true; isOvercast = true; isRain = true; }
+            if ((code >= 71 && code <= 77) || code == 85 || code == 86) { isCloudy = true; isOvercast = true; isSnow = true; }
+            if (code >= 95) { isCloudy = true; isOvercast = true; isRain = true; isStorm = true; }
+
+            currentWeather = { isSnow, isRain, isStorm };
+
+            // --- CONFIGURATION DU SHADER ---
+            let cloudCoverTarget = 0.0;
+            if (code == 1) cloudCoverTarget = 0.3;      // Quelques nuages
+            if (code == 2) cloudCoverTarget = 0.6;      // Partiellement nuageux
+            if (code == 3) cloudCoverTarget = 0.9;      // Couvert
+            if (isOvercast || isFog) cloudCoverTarget = 1.0; // Totalement bouché
+
+            let topColor = new THREE.Color(0x1e488f); 
+            let botColor = new THREE.Color(0x8cb4f5);
+            let cloudColor = new THREE.Color(0xffffff);
+
+            if (!isDay) { // Nuit
+                topColor.setHex(0x02040a);
+                botColor.setHex(0x0a101d);
+                cloudColor.setHex(0x111118);
+            } else if (curve < 0.25) { // Aube / Crépuscule (Superbe dégradé orange/rose)
+                topColor.setHex(0x2a3b60);
+                botColor.setHex(0xff7744);
+                cloudColor.setHex(0xffaa88);
+            }
+
+            if (isOvercast) { // Grisaille
+                topColor.lerp(new THREE.Color(0x334155), 0.8);
+                botColor.lerp(new THREE.Color(0x64748b), 0.8);
+                cloudColor.lerp(new THREE.Color(isStorm ? 0x22222a : 0x777788), 0.9);
+            }
+
+            skyUniforms.uCloudCover.value = cloudCoverTarget;
+            skyUniforms.uColorTop.value.copy(topColor);
+            skyUniforms.uColorBottom.value.copy(botColor);
+            skyUniforms.uCloudColor.value.copy(cloudColor);
+
+            // --- ASTRES ---
+            const angle = (hour / 24) * Math.PI * 2 - Math.PI/2;
+            const radius = 200;
+            sunSprite.position.set(Math.cos(angle)*radius, -Math.sin(angle)*radius, -100);
+            moonMesh.position.set(Math.cos(angle + Math.PI)*radius, -Math.sin(angle + Math.PI)*radius, -100);
+            
+            // NOUVEAU : Synchroniser la lumière 3D avec le sprite du soleil
+            sunLight.position.copy(sunSprite.position);
+            sunLight.intensity = isDay && !isOvercast ? curve * 1.5 : (isDay ? curve * 0.4 : 0);
+
+            // NOUVEAU : Quantité et couleur des Nuages 3D en temps réel
+            let targetCloudOpacity = 0;
+            if (code == 1) targetCloudOpacity = 0.3; // Quelques nuages
+            if (code == 2) targetCloudOpacity = 0.6; // Partiellement nuageux
+            if (code >= 3) targetCloudOpacity = 0.95; // Couvert
+            if (isFog) targetCloudOpacity = 0.2;
+            
+            cloudMat.opacity = targetCloudOpacity;
+            cloudsGroup.visible = (targetCloudOpacity > 0);
+            cloudMat.color.copy(cloudColor); // Teinte atmosphérique (orange au coucher, noir la nuit)
+
+            const showStars = !isDay && !isOvercast && !isFog;
+            stars.visible = showStars;
+            sunSprite.visible = isDay && !isOvercast && !isFog;
+            moonMesh.visible = !isDay && !isOvercast && !isFog;
+
+            // --- PRECIPITATIONS ---
+            rainLines.material.opacity = isRain ? (isStorm ? 0.7 : 0.4) : 0;
+            snowPoints.material.opacity = isSnow ? 0.8 : 0;
+
+            // UI
+            document.getElementById('sliderTimeLabel').textContent = d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+            document.getElementById('sliderDateLabel').textContent = d.toLocaleDateString('fr-FR', {day:'numeric', month:'short'});
+            document.getElementById('sliderTempLabel').textContent = `${Math.round(h.temperature_2m[idx])}°C`;
+            
+            const desc = {
+                0:'Ciel dégagé', 1:'Peu nuageux', 2:'Nuageux', 3:'Couvert', 
+                45:'Brouillard', 48:'Brouillard givrant', 51:'Bruine légère', 
+                53:'Bruine', 55:'Bruine forte', 61:'Pluie faible', 
+                63:'Pluie', 65:'Pluie forte', 71:'Neige faible', 
+                73:'Neige', 75:'Neige forte', 80:'Averses',
+                81:'Fortes averses', 82:'Averses violentes',
+                95:'Orage', 96:'Orage avec grêle', 99:'Orage violent'
+            };
+            const literalText = desc[code] || 'Instable';
+            
+            document.getElementById('sliderDescLabel').textContent = literalText;
+            document.getElementById('weatherLiteral').textContent = literalText;
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('hourlyChart').getContext('2d');
+            if(chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: weatherData.hourly.time.map(t => new Date(t).getHours() + 'h'),
+                    datasets: [{
+                        data: weatherData.hourly.temperature_2m,
+                        borderColor: '#3b82f6',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        fill: true,
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)'
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false } }
+            });
+        }
+
+        async function triggerSearch(event) {
+            if(event) event.preventDefault();
+            const val = input.value.trim();
+            if(!val) return;
+            setLoading(true);
+            try {
+                const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(val)}&count=1&language=fr&format=json`);
+                const data = await res.json();
+                if(data.results) {
+                    fetchWeather(data.results[0].latitude, data.results[0].longitude, data.results[0].name);
+                    input.blur();
+                } else {
+                    const st = document.getElementById('searchStatus');
+                    st.style.opacity = 1;
+                    setTimeout(() => st.style.opacity = 0, 3000);
+                }
+            } catch(e) { console.error(e); }
+            finally { setLoading(false); }
+        }
+
+        function setLoading(l) {
+            const o = document.getElementById('loadingOverlay');
+            o.style.opacity = l ? 1 : 0;
+            if(!l) setTimeout(() => o.classList.add('hidden'), 300);
+            else o.classList.remove('hidden');
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            const btn = document.getElementById('playPauseBtn');
+            
+            if (isPlaying) {
+                // Mode Lecture
+                btn.innerHTML = '<i data-lucide="pause" class="w-5 h-5"></i>';
+                btn.classList.replace('bg-blue-600', 'bg-red-500');
+                btn.classList.replace('hover:bg-blue-500', 'hover:bg-red-400');
+                btn.classList.replace('shadow-blue-500/40', 'shadow-red-500/40');
+                
+                playInterval = setInterval(() => {
+                    let slider = document.getElementById('timeSlider');
+                    let currentVal = parseInt(slider.value);
+                    currentVal++;
+                    if (currentVal > 167) currentVal = 0; // Retour au début à la fin de la semaine
+                    slider.value = currentVal;
+                    updateFrame(currentVal);
+                }, 800); // Défilement toutes les 800ms
+            } else {
+                // Mode Pause
+                btn.innerHTML = '<i data-lucide="play" class="w-5 h-5 ml-0.5"></i>';
+                btn.classList.replace('bg-red-500', 'bg-blue-600');
+                btn.classList.replace('hover:bg-red-400', 'hover:bg-blue-500');
+                btn.classList.replace('shadow-red-500/40', 'shadow-blue-500/40');
+                clearInterval(playInterval);
+            }
+            lucide.createIcons();
+        }
+
+        window.onload = () => {
+            lucide.createIcons();
+            init3D();
+            fetchWeather(48.85, 2.35, "Paris");
+            
+            document.getElementById('searchForm').addEventListener('submit', triggerSearch);
+            
+            const slider = document.getElementById('timeSlider');
+            slider.oninput = (e) => {
+                // Stop l'autoplay si l'utilisateur bouge le curseur manuellement
+                if (isPlaying) togglePlay(); 
+                updateFrame(parseInt(e.target.value));
+            };
+            
+            setTimeout(() => input.focus(), 500);
+        };
+    </script>
+</body>
+</html>
