@@ -156,6 +156,52 @@
         }
         .geo-btn { animation: pulse-blue 2s infinite; }
 
+        /* World Cities Strip */
+        .world-cities-strip {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding: 4px 2px 8px;
+            scrollbar-width: none;
+        }
+        .world-cities-strip::-webkit-scrollbar { display: none; }
+        .city-world-card {
+            flex-shrink: 0;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 1rem;
+            padding: 10px 14px;
+            min-width: 110px;
+            cursor: pointer;
+            transition: all 0.25s;
+            text-align: center;
+        }
+        .city-world-card:hover {
+            border-color: rgba(59,130,246,0.45);
+            background: rgba(59,130,246,0.12);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(59,130,246,0.15);
+        }
+        .city-world-card .city-temp {
+            font-size: 1.3rem;
+            font-weight: 900;
+            line-height: 1.1;
+        }
+        .city-world-card .city-name {
+            font-size: 10px;
+            font-weight: 800;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            line-height: 1.2;
+        }
+        @keyframes cityCardIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .city-world-card { animation: cityCardIn 0.4s ease-out both; }
+
         /* Mobile improvements */
         @media (max-width: 640px) {
             #three-canvas-container { height: 320px; }
@@ -171,7 +217,7 @@
                 <div class="bg-blue-600 p-2 rounded-lg shadow-lg">
                     <i data-lucide="cloud-sun" class="text-white w-5 h-5"></i>
                 </div>
-                <span class="font-black text-lg tracking-tighter">METEO<span class="text-blue-500">3Dchris</span></span>
+                <span class="font-black text-lg tracking-tighter">METEO<span class="text-blue-500">3D</span></span>
             </div>
 
             <div class="flex items-center gap-2 text-sm font-semibold text-slate-400">
@@ -247,6 +293,23 @@
                             <i data-lucide="play" class="w-5 h-5 ml-0.5"></i>
                         </button>
                         <input type="range" id="timeSlider" min="0" max="167" value="0" class="w-full cursor-pointer">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Villes du monde -->
+            <div class="glass-card !py-4">
+                <div class="flex items-center justify-between gap-2 mb-3 px-1">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="globe-2" class="w-4 h-4 text-blue-400"></i>
+                        <span class="text-[10px] font-black uppercase text-slate-500 tracking-widest">Météo Mondiale en Direct</span>
+                    </div>
+                    <span class="text-[9px] text-slate-600 font-bold">Cliquez sur une ville pour y accéder</span>
+                </div>
+                <div class="world-cities-strip" id="worldCitiesStrip">
+                    <div class="text-slate-500 text-xs py-3 px-2 flex items-center gap-2">
+                        <div class="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                        Chargement...
                     </div>
                 </div>
             </div>
@@ -835,6 +898,68 @@
             });
         }
 
+        // --- VILLES DU MONDE ---
+        const WORLD_CITIES = [
+            { name: 'New York',     flag: '🇺🇸', lat: 40.7128,  lon: -74.0060 },
+            { name: 'Port Louis',   flag: '🇲🇺', lat: -20.1609, lon:  57.4990 },
+            { name: 'Marseille',    flag: '🇫🇷', lat: 43.2965,  lon:   5.3698 },
+            { name: 'La Londe',     flag: '🇫🇷', lat: 43.1333,  lon:   6.2333 },
+            { name: 'Londres',      flag: '🇬🇧', lat: 51.5074,  lon:  -0.1278 },
+            { name: 'Malaga',       flag: '🇪🇸', lat: 36.7213,  lon:  -4.4213 },
+            { name: 'Rome',         flag: '🇮🇹', lat: 41.9028,  lon:  12.4964 },
+            { name: 'Montréal',     flag: '🇨🇦', lat: 45.5017,  lon: -73.5673 },
+            { name: 'Tokyo',        flag: '🇯🇵', lat: 35.6762,  lon: 139.6503 },
+            { name: 'Sydney',       flag: '🇦🇺', lat: -33.8688, lon: 151.2093 },
+        ];
+
+        async function fetchWorldCities() {
+            const strip = document.getElementById('worldCitiesStrip');
+            const emojis = getWeatherEmojis();
+
+            const results = await Promise.allSettled(
+                WORLD_CITIES.map(city =>
+                    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weather_code&timezone=auto`)
+                        .then(r => r.json())
+                )
+            );
+
+            strip.innerHTML = '';
+            results.forEach((result, i) => {
+                const city = WORLD_CITIES[i];
+                const card = document.createElement('div');
+                card.className = 'city-world-card';
+                card.style.animationDelay = (i * 60) + 'ms';
+                card.title = `Voir la météo de ${city.name}`;
+                card.onclick = () => {
+                    document.getElementById('cityInput').value = city.name;
+                    fetchWeather(city.lat, city.lon, city.name);
+                };
+
+                if (result.status === 'fulfilled' && result.value.current) {
+                    const curr = result.value.current;
+                    const temp = Math.round(curr.temperature_2m);
+                    const emoji = emojis[curr.weather_code] || '🌡️';
+                    const isWarm = temp >= 20;
+                    const isCold = temp <= 0;
+                    const tempColor = isCold ? '#93c5fd' : isWarm ? '#fb923c' : '#ffffff';
+                    card.innerHTML = `
+                        <div style="font-size:1.4rem;margin-bottom:4px">${city.flag}</div>
+                        <div class="city-name">${city.name}</div>
+                        <div class="city-temp" style="color:${tempColor};margin-top:5px">${temp}°</div>
+                        <div style="font-size:1.1rem;margin-top:2px">${emoji}</div>
+                    `;
+                } else {
+                    card.innerHTML = `
+                        <div style="font-size:1.4rem;margin-bottom:4px">${city.flag}</div>
+                        <div class="city-name">${city.name}</div>
+                        <div class="city-temp" style="color:#475569;margin-top:5px">--°</div>
+                        <div style="font-size:1rem;color:#475569">?</div>
+                    `;
+                }
+                strip.appendChild(card);
+            });
+        }
+
         // --- RECHERCHE ---
         async function triggerSearch(event) {
             if(event) event.preventDefault();
@@ -883,6 +1008,7 @@
             init3D();
             renderFavorites();
             fetchWeather(48.85, 2.35, "Paris");
+            fetchWorldCities();
             document.getElementById('searchForm').addEventListener('submit', triggerSearch);
             document.getElementById('timeSlider').oninput = (e) => {
                 if (isPlaying) togglePlay();
