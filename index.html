@@ -202,6 +202,30 @@
         }
         .city-world-card { animation: cityCardIn 0.4s ease-out both; }
 
+        /* Chart tabs */
+        .chart-tab {
+            padding: 5px 14px;
+            border-radius: 0.6rem;
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #64748b;
+            background: transparent;
+            border: 1px solid transparent;
+            letter-spacing: 0.03em;
+        }
+        .chart-tab:hover { color: #94a3b8; }
+        .chart-tab.active {
+            color: #fff;
+            border-color: rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.07);
+        }
+        .chart-tab.active.tab-temp { color: #60a5fa; border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.1); }
+        .chart-tab.active.tab-sun  { color: #fbbf24; border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.08); }
+        .chart-panel { display: none; }
+        .chart-panel.active { display: block; }
+
         /* Mobile improvements */
         @media (max-width: 640px) {
             #three-canvas-container { height: 320px; }
@@ -319,10 +343,28 @@
             <!-- Stats grid améliorée -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div class="md:col-span-2 glass-card">
-                    <h3 class="text-xs font-black uppercase text-slate-500 mb-4 tracking-widest">Évolution Température (7 jours)</h3>
-                    <div class="h-64 overflow-x-auto custom-scrollbar">
-                        <div style="min-width: 2000px; height: 100%;">
-                            <canvas id="hourlyChart"></canvas>
+                    <!-- En-tête avec onglets -->
+                    <div class="flex items-center justify-between mb-4">
+                        <span class="text-xs font-black uppercase text-slate-500 tracking-widest" id="chartTitle">Évolution Température (7 jours)</span>
+                        <div class="flex gap-1 bg-black/20 p-1 rounded-lg">
+                            <button class="chart-tab tab-temp active" onclick="switchChart('temp')" id="tab-temp">🌡️ Température</button>
+                            <button class="chart-tab tab-sun"  onclick="switchChart('sun')"  id="tab-sun">☀️ Ensoleillement</button>
+                        </div>
+                    </div>
+                    <!-- Panneau température -->
+                    <div class="chart-panel active" id="panel-temp">
+                        <div class="h-64 overflow-x-auto custom-scrollbar">
+                            <div style="min-width: 2000px; height: 256px;">
+                                <canvas id="hourlyChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Panneau ensoleillement -->
+                    <div class="chart-panel" id="panel-sun">
+                        <div class="h-64 overflow-x-auto custom-scrollbar">
+                            <div style="min-width: 2000px; height: 256px;">
+                                <canvas id="sunshineChart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -394,15 +436,6 @@
                 </div>
             </div>
 
-            <!-- Graphique Ensoleillement -->
-            <div class="glass-card">
-                <h3 class="text-xs font-black uppercase text-slate-500 mb-4 tracking-widest">☀️ Ensoleillement (7 jours) — % par heure</h3>
-                <div class="h-48 overflow-x-auto custom-scrollbar">
-                    <div style="min-width: 2000px; height: 100%;">
-                        <canvas id="sunshineChart"></canvas>
-                    </div>
-                </div>
-            </div>
         </main>
 
         <!-- PAGE : PRÉVISIONS DÉTAILLÉES -->
@@ -944,6 +977,21 @@
                     }
                 }
             });
+        }
+
+        // --- ONGLETS GRAPHIQUES ---
+        function switchChart(tab) {
+            const isTemp = tab === 'temp';
+            document.getElementById('panel-temp').classList.toggle('active', isTemp);
+            document.getElementById('panel-sun').classList.toggle('active', !isTemp);
+            document.getElementById('tab-temp').classList.toggle('active', isTemp);
+            document.getElementById('tab-sun').classList.toggle('active', !isTemp);
+            document.getElementById('chartTitle').textContent = isTemp
+                ? 'Évolution Température (7 jours)'
+                : 'Ensoleillement — % par heure (7 jours)';
+            // Forcer le re-rendu du graphique qui devient visible
+            if (!isTemp && weatherData) updateSunshineChart();
+            if (isTemp && weatherData) updateChart();
         }
 
         // --- GRAPHIQUE ENSOLEILLEMENT ---
