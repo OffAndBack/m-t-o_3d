@@ -281,6 +281,12 @@
             </div>
         </div>
 
+        <!-- Alerte pluie : ville la plus proche sans pluie -->
+        <div id="rain-alert" class="hidden mb-4 bg-slate-900/80 border border-blue-500/20 rounded-2xl px-5 py-4 backdrop-blur-md">
+            <div id="rain-alert-msg" class="text-sm font-semibold text-slate-200 flex items-center flex-wrap gap-2"></div>
+            <div id="rain-alert-result" class="hidden mt-3 pt-3 border-t border-white/5"></div>
+        </div>
+
         <!-- PAGE : DASHBOARD 3D (HOME) -->
         <main id="page-home" class="page-content active space-y-8">
             <div class="relative">
@@ -718,6 +724,7 @@
                 updateChart();
                 updateSunshineChart();
                 updateDetailedForecast();
+                checkRainAndFindSunshine();
             } catch(e) { console.error(e); } finally { setLoading(false); }
         }
 
@@ -977,6 +984,129 @@
                     }
                 }
             });
+        }
+
+        // --- DÉTECTION PLUIE + VILLE LA PLUS PROCHE SANS PLUIE ---
+        function isRainyCode(code) {
+            return (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95 && code <= 99);
+        }
+
+        function haversineKm(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+            return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+        }
+
+        function coordAtBearing(lat, lon, km, bearing) {
+            const R = 6371, b = bearing * Math.PI / 180;
+            const la = lat * Math.PI / 180, lo = lon * Math.PI / 180, d = km / R;
+            const la2 = Math.asin(Math.sin(la)*Math.cos(d) + Math.cos(la)*Math.sin(d)*Math.cos(b));
+            const lo2 = lo + Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(la), Math.cos(d) - Math.sin(la)*Math.sin(la2));
+            return { lat: la2 * 180/Math.PI, lon: lo2 * 180/Math.PI };
+        }
+
+        async function checkRainAndFindSunshine() {
+            const alertDiv   = document.getElementById('rain-alert');
+            const msgEl      = document.getElementById('rain-alert-msg');
+            const resultEl   = document.getElementById('rain-alert-result');
+
+            if (!weatherData || !currentCity.name) { alertDiv.classList.add('hidden'); return; }
+
+            // Vérifier pluie maintenant OU dans les 3 prochaines heures
+            const nowIdx    = getCurrentHourIndex();
+            const nextCodes = weatherData.hourly.weather_code.slice(nowIdx, nowIdx + 4);
+            const rainingNow  = isRainyCode(weatherData.current.weather_code);
+            const rainingSoon = nextCodes.some(c => isRainyCode(c));
+
+            if (!rainingNow && !rainingSoon) {
+                alertDiv.classList.add('hidden');
+                return;
+            }
+
+            // Afficher l'alerte + état de chargement
+            const rainEmoji = rainingNow ? '🌧️' : '🌦️';
+            const introMsg  = rainingNow
+                ? 'Il pleut actuellement sur cette ville.'
+                : 'De la pluie est prévue dans les prochaines heures.';
+
+            alertDiv.classList.remove('hidden');
+            resultEl.classList.add('hidden');
+            msgEl.innerHTML = `<span class="text-xl mr-1">${rainEmoji}</span>
+                <span class="font-black text-white">${introMsg}</span>
+                <span class="ml-2 flex items-center gap-1 text-slate-400 text-xs">
+                    <span class="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin inline-block"></span>
+                    Recherche de l'éclaircie la plus proche…
+                </span>`;
+
+            // Générer candidats : 8 directions × 4 distances croissantes
+            const bearings  = [0, 45, 90, 135, 180, 225, 270, 315];
+            const distances = [40, 80, 140, 220];
+            const candidates = [];
+            for (const km of distances) {
+                for (const b of bearings) {
+                    candidates.push({ ...coordAtBearing(currentCity.lat, currentCity.lon, km, b), km });
+                }
+            }
+
+            // Parcourir les candidats par lots de 8 (distance croissante = plus proche d'abord)
+            let found = null;
+            for (let i = 0; i < candidates.length && !found; i += 8) {
+                const batch = candidates.slice(i, i + 8);
+                const results = await Promise.allSettled(
+                    batch.map(c =>
+                        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat.toFixed(4)}&longitude=${c.lon.toFixed(4)}&current=weather_code,temperature_2m&timezone=auto`)
+                            .then(r => r.json())
+                            .then(data => ({ ...c, code: data.current.weather_code, temp: Math.round(data.current.temperature_2m) }))
+                    )
+                );
+                const sunnyOnes = results
+                    .filter(r => r.status === 'fulfilled' && !isRainyCode(r.value.code))
+                    .map(r => r.value)
+                    .sort((a, b) => a.km - b.km);
+                if (sunnyOnes.length > 0) found = sunnyOnes[0];
+            }
+
+            // Aucun résultat trouvé
+            if (!found) {
+                msgEl.innerHTML = `<span class="text-xl mr-1">${rainEmoji}</span>
+                    <span class="font-black text-white">${introMsg}</span>
+                    <span class="ml-2 text-slate-400 text-xs">Aucune éclaircie dans un rayon de 220 km.</span>`;
+                resultEl.classList.add('hidden');
+                return;
+            }
+
+            // Reverse geocoding du point trouvé
+            let cityName = null;
+            try {
+                const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${found.lat.toFixed(4)}&longitude=${found.lon.toFixed(4)}&language=fr&format=json`);
+                const gd  = await geo.json();
+                cityName  = gd.city || gd.locality || gd.name || null;
+            } catch(e) {}
+            if (!cityName) cityName = `${found.lat.toFixed(1)}°, ${found.lon.toFixed(1)}°`;
+
+            const dist        = haversineKm(currentCity.lat, currentCity.lon, found.lat, found.lon);
+            const emojis      = getWeatherEmojis();
+            const sunnyEmoji  = emojis[found.code] || '🌤️';
+            const safeName    = cityName.replace(/'/g, "\\'");
+
+            msgEl.innerHTML = `<span class="text-xl mr-1">${rainEmoji}</span>
+                <span class="font-black text-white">${introMsg}</span>`;
+
+            resultEl.classList.remove('hidden');
+            resultEl.innerHTML = `
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="text-[10px] font-black uppercase text-slate-500 tracking-widest">Éclaircie la plus proche :</span>
+                    <button onclick="document.getElementById('cityInput').value='${safeName}'; fetchWeather(${found.lat.toFixed(4)}, ${found.lon.toFixed(4)}, '${safeName}')"
+                        class="flex items-center gap-2 bg-amber-500/15 border border-amber-400/30 hover:bg-amber-400/25 text-amber-300 font-black px-4 py-2 rounded-xl text-sm transition-all active:scale-95">
+                        <span class="text-lg">${sunnyEmoji}</span>
+                        <span>${cityName}</span>
+                        <span class="bg-amber-400/20 text-amber-200 text-xs font-black px-2 py-0.5 rounded-full">~${dist} km</span>
+                        <span class="text-white font-black">${found.temp}°C</span>
+                        <span class="text-[10px] text-amber-400/70 font-semibold">→ voir la météo</span>
+                    </button>
+                </div>`;
         }
 
         // --- ONGLETS GRAPHIQUES ---
