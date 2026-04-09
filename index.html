@@ -722,7 +722,6 @@
             currentCity = { name, lat, lon };
             updateFavBtn();
             
-            // Unité de températures dynamique
             let unitStr = appSettings.units === 'fahrenheit' ? '&temperature_unit=fahrenheit&wind_speed_unit=mph' : '';
             
             try {
@@ -730,35 +729,32 @@
                 const res = await fetch(url);
                 weatherData = await res.json();
                 
-                // Mettre à jour l'interface standard
-                updateStaticUI(name);
+                try { updateStaticUI(name); } catch(ex) { console.error('Static UI error', ex); }
                 const startIdx = getCurrentHourIndex();
                 document.getElementById('timeSlider').value = startIdx;
-                updateFrame(startIdx);
-                updateChart();
-                updateSunshineChart();
-                updateDetailedForecast();
-                checkRainAndFindSunshine();
-                
-                // Mise à jour API subsidiaires (Qualité Air)
-                fetchAirQuality(lat, lon);
-                // Mise à jour de la lune
-                updateMoonPhaseDisplay(new Date());
+                try { updateFrame(startIdx); } catch(ex) { console.error('Frame error', ex); }
+                try { updateChart(); } catch(ex) { console.error('Chart error', ex); }
+                try { updateSunshineChart(); } catch(ex) { console.error('Sunshine chart error', ex); }
+                try { updateDetailedForecast(); } catch(ex) { console.error('Detailed forecast error', ex); }
+                try { checkRainAndFindSunshine(); } catch(ex) { console.error('Rain check error', ex); }
                 
                 // Si la carte radar était ouverte, on centre dessus
                 if (radarMap) radarMap.flyTo([lat, lon], 7);
 
-            } catch(e) { console.error(e); } finally { setLoading(false); }
+            } catch(e) { console.error("Main fetch error:", e); } finally { setLoading(false); }
+
+            // Lancer les requêtes indépendantes en-dehors du grand try/catch
+            try { fetchAirQuality(lat, lon); } catch(e) { console.error(e); }
+            try { updateMoonPhaseDisplay(new Date()); } catch(e) { console.error(e); }
         }
 
         // --- FETCH QUALITÉ DE L'AIR (NOUVEAU) ---
         async function fetchAirQuality(lat, lon) {
             try {
-                // OpenMeteo a une API séparée pour l'IQA
                 const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=european_aqi,pm2_5,birch_pollen,grass_pollen,olive_pollen&timezone=auto`);
                 const data = await res.json();
                 
-                if(!data || !data.current) return;
+                if(!data || !data.current) throw new Error("Données IQA manquantes");
                 
                 const aqi = data.current.european_aqi;
                 document.getElementById('aqiValue').textContent = aqi || '--';
@@ -789,6 +785,11 @@
             } catch(e) { 
                 console.error("AQI error", e); 
                 document.getElementById('aqiValue').textContent = '--';
+                const lbl = document.getElementById('aqiLabel');
+                lbl.textContent = 'Indisp.'; 
+                lbl.className = `text-sm font-bold px-2 py-1 rounded bg-slate-800 text-slate-500`;
+                document.getElementById('pm25Value').textContent = '--';
+                document.getElementById('pollenValue').textContent = '--';
             }
         }
 
